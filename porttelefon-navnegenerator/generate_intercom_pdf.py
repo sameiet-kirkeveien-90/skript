@@ -250,9 +250,12 @@ def draw_oppgang_page(c: canvas.Canvas, oppgang: str, boxes):
                 break
 
             # ramme
-            c.setStrokeColorRGB(0,0,0)
+            c.setStrokeColorRGB(0.9,0.9,0.9)
             c.setFillColorRGB(1,1,1)
             c.rect(x, bottom_y, box_w, box_h, stroke=1, fill=1)
+
+            # tekst
+            c.setStrokeColorRGB(0,0,0)
 
             # Innvendig band (horisontalt)
             content_left, content_right = x + inner_pad, x + box_w - inner_pad
