@@ -1,0 +1,9 @@
+[project]
+name = "porttelefon-navnegenerator"
+version = "0.1.0"
+description = "Generer navneoversikten til porttelefoner i A4-format ut i fra en CSV-eksport fra et regneark ved bruk av Excel, OpenOffice eller Google Docs"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "reportlab"
+]
