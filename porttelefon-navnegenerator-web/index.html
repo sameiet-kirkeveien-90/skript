@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Porttelefon-panel — Utskrift</title>
+  <style>
+    :root{
+      /* A4 portrett */
+      --page-width: 210mm;
+      --page-height: 297mm;
+      --page-margin: 12mm;
+
+      /* BOKSER (kan justeres i UI) */
+      --box-width: 64mm;
+      --box-height: 82mm;
+      --box-gap-v: 16mm;   /* mellom topp- og bottombokser */
+      --column-gap: 14mm;  /* mellom venstre/høyre kolonne */
+
+      /* Safe-band inne i boks (slissene fordeles mellom disse) */
+      --inner-pad-x: 2mm;  /* venstre/høyre innrykk */
+      --inner-top: 6mm;
+      --inner-bottom: 6mm;
+
+      /* Typografi */
+      --font-max: 16pt;
+      --font-min: 14pt;
+
+      /* Header */
+      --header-font: 12pt;
+      --header-gap: 4mm;
+
+      --stroke: 0.6pt;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      /*font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; */
+      font-family: "Times New Roman", Times, Georgia, serif;
+      background: #f6f7f8;
+      color: #111;
+    }
+
+    .toolbar{
+      position: sticky; top: 0; z-index: 20;
+      display: grid; gap: .75rem; grid-template-columns: 1fr auto; align-items: end;
+      padding: 1rem; background: white; border-bottom: 1px solid #e5e7eb;
+    }
+    .toolbar .row{ display:flex; flex-wrap:wrap; gap:.75rem; align-items:center; }
+    .toolbar label{ font-size:.9rem; color:#374151; }
+    .toolbar input[type="number"]{ width:6rem; }
+    .toolbar button{ padding:.5rem .9rem; border-radius:.5rem; border:1px solid #cbd5e1; background:#fff; cursor:pointer; }
+    .toolbar button.primary{ background:#111827; color:#fff; border-color:#111827; }
+    .hint{ font-size:.9rem; color:#555; }
+    #ta{ width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
+
+    .sheet{
+      width: var(--page-width);
+      min-height: var(--page-height);
+      margin: 12mm auto;
+      background: white; box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      padding: var(--page-margin);
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: var(--header-gap);
+    }
+    .hdr, .ftr{ text-align:center; font-weight:700; font-size:var(--header-font); }
+
+    .grid{
+      display: grid;
+      grid-template-columns: var(--box-width) var(--column-gap) var(--box-width);
+      grid-template-rows: var(--box-height) var(--box-gap-v) var(--box-height);
+      justify-content: center; align-content: start;
+      position: relative;
+    }
+    .lt{ grid-column:1; grid-row:1; }
+    .rt{ grid-column:3; grid-row:1; }
+    .lb{ grid-column:1; grid-row:3; }
+    .rb{ grid-column:3; grid-row:3; }
+
+    .panel-box{
+      width: var(--box-width); height: var(--box-height);
+      border: var(--stroke) solid #111;
+      background: #fff; position: relative;
+      padding-left: var(--inner-pad-x); padding-right: var(--inner-pad-x);
+      overflow: hidden; /* aldri flyt utfor rammen */
+      display: flex; align-items: stretch; justify-content: stretch;
+    }
+    .lines{
+      position: relative; width: 100%; height: 100%;
+      padding-top: var(--inner-top); padding-bottom: var(--inner-bottom);
+      display: flex; flex-direction: column; justify-content: space-between;
+    }
+    .line{ position: relative; width:100%; height:auto; min-height: 0; }
+
+    /* Tekst: absolutt sentrert horisontalt, slik at scaleX holder seg innenfor midten */
+    .line > span{
+      position: absolute; left: 50%;
+      transform: translateX(-50%);
+      transform-origin: center center;
+      display: inline-block;
+      width: auto;
+      text-align: center;
+      font-weight: 700;
+      font-size: var(--font-max);
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    /* Debug-helpers: svake linjer for slisse-sentre */
+    .debug .lines .dbg {
+      position: absolute; left: 0; right: 0; height: 0;
+      border-top: 0.5px dashed rgba(0,0,0,.25);
+      pointer-events: none;
+    }
+
+    @media print{
+      body{ background:white; }
+      .toolbar{ display:none; }
+      .sheet{ margin:0; box-shadow:none; page-break-after: always; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="row">
+      <div class="hint">
+        CSV med kolonnene <code>leilighetsnummer,navn</code>. Eksempel på leilighetsnummer: <code>E|H0201</code> eller <code>E|0201</code>.
+      </div>
+      <div>
+        <button id="btn-sample">Last inn eksempel</button>
+        <button id="btn-generate" class="primary">Generer sider</button>
+        <button id="btn-print">Skriv ut / Lagre som PDF</button>
+      </div>
+    </div>
+    <div class="row">
+      <label>CSV-fil <input type="file" id="file" accept=".csv,text/csv"></label>
+      <label>Bredde <input type="number" id="boxW" step="1" value="64"> mm</label>
+      <label>Høyde <input type="number" id="boxH" step="1" value="82"> mm</label>
+      <label>Top-bånd <input type="number" id="innerTop" step="1" value="6"> mm</label>
+      <label>Bunn-bånd <input type="number" id="innerBottom" step="1" value="8"> mm</label>
+      <label>Kolonne-gap <input type="number" id="colGap" step="1" value="14"> mm</label>
+      <label>Boks-gap <input type="number" id="boxGap" step="1" value="16"> mm</label>
+      <label>Side-marg <input type="number" id="pageMargin" step="1" value="12"> mm</label>
+      <label><input type="checkbox" id="debugChk"> Vis slisse-linjer (debug)</label>
+    </div>
+    <textarea id="ta" rows="8"></textarea>
+  </div>
+
+  <div id="pages"></div>
+
+  <script>
+    // ---- Helpers ----
+    const mm = v => `${v}mm`;
+    function setVars(cfg){
+      const r = document.documentElement;
+      r.style.setProperty('--box-width', mm(cfg.boxW));
+      r.style.setProperty('--box-height', mm(cfg.boxH));
+      r.style.setProperty('--inner-top', mm(cfg.innerTop));
+      r.style.setProperty('--inner-bottom', mm(cfg.innerBottom));
+      r.style.setProperty('--column-gap', mm(cfg.colGap));
+      r.style.setProperty('--box-gap-v', mm(cfg.boxGap));
+      r.style.setProperty('--page-margin', mm(cfg.pageMargin));
+    }
+    function sniffDelimiter(head){
+      const counts = { ';':0, ',':0, '\t':0 };
+      for(const ch of head){ if(ch in counts) counts[ch]++; }
+      let best=',', max=-1; for(const [ch,n] of Object.entries(counts)){ if(n>max){ max=n; best=ch; } }
+      return max>0 ? (best==='\t' ? '\t' : best) : ',';
+    }
+    function parseCSV(text){
+      text = text.replace(/^\uFEFF/, '');
+      const lines = text.split(/\r?\n/).filter(l=>l.trim().length);
+      if(!lines.length) return [];
+      const head = lines.slice(0,5).join('\n');
+      const delim = sniffDelimiter(head);
+      const hdr = lines[0].split(delim).map(h=>h.trim().toLowerCase());
+      const rows = [];
+      for(let i=1;i<lines.length;i++){
+        const cols = lines[i].split(delim);
+        const rec = {}; hdr.forEach((h,idx)=>rec[h]=(cols[idx]||'').trim());
+        rows.push(rec);
+      }
+      return rows;
+    }
+    // Støtt både 'X|HNNMM' og 'X|NNMM'
+    function parseSeksjonsId(seksjonsid){
+      if(!seksjonsid) return null;
+      const parts = seksjonsid.split('|'); if(parts.length!==2) return null;
+      const oppgang = parts[0].trim().toUpperCase();
+      const right = parts[1].trim();
+      const m = right.match(/(\d{4})\s*$/); // siste 4 sifre
+      if(!m) return null;
+      const last4 = m[1];
+      const etasje = parseInt(last4.slice(0,2),10);
+      const unit = last4.slice(2);
+      const sideUnit = (unit==='01') ? 'L' : 'R';
+      // display default når navn er tomt: H + 4-sifrene (f.eks. "0402" -> "H0402")
+      const defaultDisplay = 'H' + last4;
+      return { oppgang, etasje, unit, sideUnit, defaultDisplay };
+    }
+    function groupByOppgang(records){
+      const by = new Map();
+      for(const r of records){
+        if(!by.has(r.oppgang)) by.set(r.oppgang, []);
+        by.get(r.oppgang).push(r);
+      }
+      return by;
+    }
+    // global slisser 0..7 topp->bunn
+    const baseSlot = {8:0,7:1,6:2,5:3,4:4,3:5,2:6,1:7};
+
+    function buildBoxesForOppgang(rowsForOppgang){
+      if(!rowsForOppgang.length) return [];
+      const present = new Set(rowsForOppgang.map(r=>r.etasje).filter(f=>f>=1 && f<=8));
+      let missingBottom = 0; [1,2,3,4].forEach(f=>{ if(!present.has(f)) missingBottom++; });
+      const offset = missingBottom;
+
+      const single8 = rowsForOppgang.filter(r=>r.etasje===8).length === 1;
+
+      const lines = {
+        'L_TOP': new Array(4).fill(null),
+        'R_TOP': new Array(4).fill(null),
+        'L_BOT': new Array(4).fill(null),
+        'R_BOT': new Array(4).fill(null),
+      };
+
+      for(const r of rowsForOppgang){
+        const floor = r.etasje;
+        if(!(floor in baseSlot)) continue;
+        let side = r.sideUnit;
+        if(floor===8 && single8) side = 'R';
+        const idx = baseSlot[floor] + offset;  // 0..7
+        if(idx<0 || idx>7) continue;
+        const band = (idx<=3) ? 'TOP' : 'BOT';
+        const pos  = (idx<=3) ? idx : idx-4;
+        const key = `${side}_${band}`;
+        lines[key][pos] = r.display;
+      }
+      const boxes = [
+        {column:'L', order:1, lines:lines['L_TOP']},
+        {column:'R', order:1, lines:lines['R_TOP']},
+        {column:'L', order:2, lines:lines['L_BOT']},
+        {column:'R', order:2, lines:lines['R_BOT']},
+      ];
+      return boxes.filter(b=>b.lines.some(x=>x));
+    }
+
+    // Tekst-fit: 16pt -> 14pt -> scaleX, alltid sentrert
+    function measureAndFit(span, maxWidthPx){
+      span.style.fontSize = 'var(--font-max)';
+      span.style.transform = 'translateX(-50%)';
+      let w = span.getBoundingClientRect().width;
+      if(w <= maxWidthPx) return;
+      span.style.fontSize = 'var(--font-min)';
+      w = span.getBoundingClientRect().width;
+      if(w <= maxWidthPx) return;
+      const scale = maxWidthPx / w;
+      span.style.transform = `translateX(-50%) scaleX(${scale})`;
+    }
+
+    function renderPages(records){
+      const pages = document.getElementById('pages');
+      pages.innerHTML = '';
+
+      const debugOn = document.getElementById('debugChk').checked;
+      document.body.classList.toggle('debug', debugOn);
+
+      const byOppgang = groupByOppgang(records);
+      const oppganger = Array.from(byOppgang.keys()).sort();
+
+      for(const oppgang of oppganger){
+        const rows = byOppgang.get(oppgang);
+
+        const boxes = buildBoxesForOppgang(rows);
+
+        const sheet = document.createElement('section');
+        sheet.className = 'sheet';
+        const hdr = document.createElement('div'); hdr.className = 'hdr'; hdr.textContent = `Oppgang ${oppgang}`;
+        const ftr = document.createElement('div'); ftr.className = 'ftr'; ftr.textContent = `Oppgang ${oppgang}`;
+        const grid = document.createElement('div'); grid.className = 'grid';
+
+        const leftTop  = boxes.find(b=>b.column==='L' && b.order===1);
+        const rightTop = boxes.find(b=>b.column==='R' && b.order===1);
+        const leftBot  = boxes.find(b=>b.column==='L' && b.order===2);
+        const rightBot = boxes.find(b=>b.column==='R' && b.order===2);
+
+        function makeBox(box, cls){
+          const div = document.createElement('div'); div.className = 'panel-box ' + cls;
+          const inner = document.createElement('div'); inner.className = 'lines';
+          const lines = box ? box.lines : new Array(4).fill(null);
+
+          // lag 4 slisser
+          for(let i=0;i<4;i++){
+            const t = lines[i] || '';
+            const line = document.createElement('div'); line.className = 'line';
+            const span = document.createElement('span'); span.textContent = t;
+            line.appendChild(span);
+            inner.appendChild(line);
+
+            if(debugOn){
+              const dbg = document.createElement('div');
+              dbg.className = 'dbg';
+              // plasser hjelpelinje midt i slissen etter layout → gjøres etter mount
+              line.appendChild(dbg);
+            }
+          }
+          div.appendChild(inner);
+          return div;
+        }
+
+        grid.appendChild(makeBox(leftTop, 'lt'));
+        grid.appendChild(makeBox(rightTop, 'rt'));
+        grid.appendChild(makeBox(leftBot, 'lb'));
+        grid.appendChild(makeBox(rightBot, 'rb'));
+
+        sheet.appendChild(hdr);
+        sheet.appendChild(grid);
+        sheet.appendChild(ftr);
+        pages.appendChild(sheet);
+
+        // Etter at alt står i DOM: mål-fit alle spans + juster debug-linjer
+        const spans = sheet.querySelectorAll('.panel-box .line > span');
+        for(const span of spans){
+          const boxWidth = span.parentElement.getBoundingClientRect().width;
+          if(span.textContent.trim().length){
+            measureAndFit(span, boxWidth);
+          }
+        }
+        if(debugOn){
+          // Plasser hjelpelinjer midt i hver slisse
+          const linesEls = sheet.querySelectorAll('.panel-box .line');
+          for(const el of linesEls){
+            const r = el.getBoundingClientRect();
+            const mid = r.height/2;
+            const dbg = el.querySelector('.dbg');
+            if(dbg){
+              dbg.style.top = `${mid}px`;
+            }
+          }
+        }
+      }
+    }
+
+    // ---- I/O ----
+    async function readFileAsText(file){
+      return new Promise((resolve, reject)=>{
+        const fr = new FileReader();
+        fr.onload = () => resolve(fr.result);
+        fr.onerror = reject;
+        fr.readAsText(file);
+      });
+    }
+    function toRecords(csvRows){
+      const out = [];
+      for(const rec of csvRows){
+        const seksjonsid = (rec['leilighetsnummer'] || rec['seksjonsid'] || rec['apt'] || '').trim();
+        const navn = (rec['navn'] || rec['name'] || '').trim();
+        if(!seksjonsid) continue;
+        const p = parseSeksjonsId(seksjonsid);
+        if(!p) continue;
+        const disp = (navn ? navn : p.defaultDisplay).toUpperCase();
+        out.push({ seksjonsid, oppgang: p.oppgang, etasje: p.etasje, unit: p.unit, sideUnit: p.sideUnit, display: disp });
+      }
+      return out;
+    }
+    function gatherConfig(){
+      return {
+        boxW: +document.getElementById('boxW').value,
+        boxH: +document.getElementById('boxH').value,
+        innerTop: +document.getElementById('innerTop').value,
+        innerBottom: +document.getElementById('innerBottom').value,
+        colGap: +document.getElementById('colGap').value,
+        boxGap: +document.getElementById('boxGap').value,
+        pageMargin: +document.getElementById('pageMargin').value,
+      };
+    }
+
+    // ---- UI wiring ----
+    document.getElementById('btn-sample').addEventListener('click', ()=>{
+      const sample =
+`leilighetsnummer,navn
+A|H0801,PENTHOUSE
+A|H0701,NAVN VENSTRE 7
+A|H0702,NAVN HØYRE 7
+A|H0601,EKSEMPEL VENSTRE 6
+A|H0602,EKSEMPEL HØYRE 6
+A|H0501,ETTERNAVN/ETTERNAVN
+A|H0502,HVIS DET
+A|H0401,STEIN
+A|H0402,LIE/MELHUUS
+A|H0301,NEEVDAL
+A|H0302,TEST
+A|H0201,NOOORDBERG
+A|H0202,OLAVSEN / TAIHET
+B|H0801,PENTHOUSE B
+B|H0802,EKSTRA 8 B
+B|H0101,
+B|0102,     `;
+      document.getElementById('ta').value = sample;
+    });
+    document.getElementById('file').addEventListener('change', async (e)=>{
+      const f = e.target.files[0]; if(!f) return;
+      const txt = await readFileAsText(f);
+      document.getElementById('ta').value = txt;
+    });
+    document.getElementById('btn-generate').addEventListener('click', ()=>{
+      setVars(gatherConfig());
+      const rows = parseCSV(document.getElementById('ta').value);
+      const records = toRecords(rows);
+      renderPages(records);
+    });
+    document.getElementById('btn-print').addEventListener('click', ()=> window.print());
+    document.getElementById('debugChk').addEventListener('change', ()=>{
+      // regenerer for å tegne/ta vekk linjene
+      setVars(gatherConfig());
+      const rows = parseCSV(document.getElementById('ta').value);
+      const records = toRecords(rows);
+      renderPages(records);
+    });
+  </script>
+</body>
+</html>
